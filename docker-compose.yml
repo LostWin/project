@@ -1,0 +1,145 @@
+version: "3.8"
+
+services:
+
+  # ─────────────────────────────
+  # ✅ API CITADEL
+  # ─────────────────────────────
+  api:
+    build: ./api
+    ports:
+      - "${API_PORT}:8000"
+    env_file:
+      - .env
+    networks:
+      - frontend
+      - backend
+      - monitoring
+    depends_on: []
+    restart: unless-stopped
+
+  # ─────────────────────────────
+  # ✅ LLM SERVICE
+  # ─────────────────────────────
+  llm_service:
+    build: ./llm
+    env_file:
+      - .env
+    networks:
+      - backend
+      - db_net
+    volumes:
+      - ./documents:/app/documents
+      - ./vectordb/persist:/app/chroma_db
+    depends_on:
+      - chromadb
+      - ollama
+    restart: unless-stopped
+
+  # ─────────────────────────────
+  # ✅ ChromaDB (RAG)
+  # ─────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    volumes:
+      - ./vectordb/persist:/chroma/chroma
+    networks:
+      - db_net
+    restart: unless-stopped
+
+  # ─────────────────────────────
+  # ✅ Ollama (LLM local)
+  # ─────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ─────────────────────────────
+  # ✅ Elasticsearch
+  # ─────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    hostname: elasticsearch 
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "${ELASTIC_PORT}:9200"
+    networks:
+      - monitoring
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    restart: unless-stopped
+
+  # ─────────────────────────────
+  # ✅ Kibana
+  # ─────────────────────────────
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.12.0
+    ports:
+      - "${KIBANA_PORT}:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200   # must be http://
+      - XPACK_SECURITY_ENABLED=false
+    networks:
+      - monitoring
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+  # ─────────────────────────────
+  # ✅ Prometheus (AJOUT)
+  # ─────────────────────────────
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # ─────────────────────────────
+  # ✅ Grafana (AJOUT)
+  # ─────────────────────────────
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+# ─────────────────────────────
+# Réseaux
+# ─────────────────────────────
+networks:
+  frontend:
+  backend:
+  db_net:
+  monitoring:
+
+    # ─────────────────────────────
+    # Volumes
+    # ─────────────────────────────
+volumes:
+  esdata:
+  ollama_data:
